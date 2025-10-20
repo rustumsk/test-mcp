@@ -128,12 +128,17 @@ app.post("/mcp", async (req, res) => {
   try {
     const normalizedMethod = method.replace(/^mcp\//, "");
 
+    // -----------------------------
+    // Handle MCP initialize
+    // -----------------------------
     if (normalizedMethod === "initialize" || normalizedMethod === "get_tools") {
-      // Return tool metadata
       return res.json({
         jsonrpc: "2.0",
         id,
         result: {
+          protocolVersion: "1.0",
+          capabilities: [],
+          serverInfo: { name: "Test MCP Server" },
           tools: Object.entries(tools).map(([name, t]) => ({
             name,
             description: t.description,
@@ -142,6 +147,9 @@ app.post("/mcp", async (req, res) => {
       });
     }
 
+    // -----------------------------
+    // Handle tool invocation
+    // -----------------------------
     if (normalizedMethod === "invoke_tool") {
       const { name, args } = params || {};
       const tool = tools[name];
@@ -156,7 +164,9 @@ app.post("/mcp", async (req, res) => {
       return res.json({ jsonrpc: "2.0", id, result });
     }
 
+    // -----------------------------
     // Unknown method fallback
+    // -----------------------------
     return res.json({
       jsonrpc: "2.0",
       id,
