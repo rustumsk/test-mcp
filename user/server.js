@@ -16,6 +16,37 @@ const db = await mysql.createPool({
 });
 
 // -----------------------------
+// SEED DATABASE
+// -----------------------------
+async function seedDatabase() {
+  // Create table if it doesn't exist
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100),
+      email VARCHAR(255),
+      role VARCHAR(50),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Check if table already has users
+  const [rows] = await db.query("SELECT COUNT(*) AS count FROM users");
+  if (rows[0].count === 0) {
+    await db.query(
+      "INSERT INTO users (name, email, role) VALUES (?, ?, ?), (?, ?, ?)",
+      ["Alice", "alice@example.com", "admin", "Bob", "bob@example.com", "user"]
+    );
+    console.log("✅ Database seeded with default users");
+  } else {
+    console.log("ℹ️ Users table already has data, skipping seeding");
+  }
+}
+
+// Run seeding on startup
+await seedDatabase();
+
+// -----------------------------
 // DEFINE YOUR TOOLS
 // -----------------------------
 const tools = {
@@ -57,7 +88,6 @@ app.post("/mcp", async (req, res) => {
   const { id, method, params } = req.body;
 
   try {
-    // 1️⃣ Return list of tools
     if (method === "mcp/get_tools") {
       return res.json({
         jsonrpc: "2.0",
@@ -71,7 +101,6 @@ app.post("/mcp", async (req, res) => {
       });
     }
 
-    // 2️⃣ Invoke a tool
     if (method === "mcp/invoke_tool") {
       const { name, args } = params || {};
       const tool = tools[name];
@@ -91,7 +120,6 @@ app.post("/mcp", async (req, res) => {
       });
     }
 
-    // 3️⃣ If unknown method
     return res.json({
       jsonrpc: "2.0",
       id,
