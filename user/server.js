@@ -4,12 +4,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import pkg from "pg";
 import { z } from "zod";
-
-// -----------------------------------------------------------
-// FIX: Corrected import paths for @modelcontextprotocol/sdk 
-// to resolve the ERR_MODULE_NOT_FOUND error on Render.
-// -----------------------------------------------------------
-import { McpServer, createHttpHandler } from "@modelcontextprotocol/sdk"; 
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 const { Pool } = pkg;
 dotenv.config();
@@ -17,16 +13,15 @@ dotenv.config();
 const PORT = process.env.PORT || 3000;
 
 // -----------------------------
-// PostgreSQL Setup - Using your original config only
+// PostgreSQL Setup
 // -----------------------------
 const db = new Pool({
-  // FIX: Using only the direct config from your original code 
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  port: process.env.DB_PORT ? parseInt(process.env.DB_PORT) : 5432, // Ensure port is a number
-  ssl: { rejectUnauthorized: false }, // Necessary for external hosting services like Render to connect to a managed DB
+  port: process.env.DB_PORT ? parseInt(process.env.DB_PORT) : 5432,
+  ssl: { rejectUnauthorized: false },
 });
 
 // -----------------------------
@@ -57,11 +52,14 @@ async function seedDatabase() {
 }
 
 // -----------------------------
-// Express App Setup
+// Express Setup
 // -----------------------------
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+
+// Health check (optional)
+app.get("/", (_, res) => res.send("✅ MCP server is running"));
 
 // -----------------------------
 // REST Endpoints (for manual testing)
@@ -100,15 +98,15 @@ app.post("/tools/create_user", async (req, res) => {
 });
 
 // -----------------------------
-// MCP Server Definition (HTTP)
+// MCP Server Setup
 // -----------------------------
-const mcpServer = new McpServer({
+const server = new McpServer({
   name: "user-mcp",
   version: "1.0.0",
 });
 
-// Register tools
-mcpServer.registerTool(
+// MCP Tools
+server.registerTool(
   "list_users",
   {
     title: "List all users",
@@ -123,7 +121,7 @@ mcpServer.registerTool(
   }
 );
 
-mcpServer.registerTool(
+server.registerTool(
   "get_user",
   {
     title: "Get user by ID",
@@ -136,25 +134,24 @@ mcpServer.registerTool(
       content: [
         {
           type: "text",
-          text:
-            rows.length > 0
-              ? JSON.stringify(rows[0], null, 2)
-              : "User not found",
+          text: rows.length
+            ? JSON.stringify(rows[0], null, 2)
+            : "User not found",
         },
       ],
     };
   }
 );
 
-mcpServer.registerTool(
+server.registerTool(
   "create_user",
   {
     title: "Create a new user",
     description: "Inserts a new user into the database",
     inputSchema: {
-      name: z.string().describe("Name of the user"),
-      email: z.string().describe("Email address of the user"),
-      role: z.string().describe("Role of the user"),
+      name: z.string(),
+      email: z.string(),
+      role: z.string(),
     },
   },
   async ({ name, email, role }) => {
@@ -169,29 +166,35 @@ mcpServer.registerTool(
 );
 
 // -----------------------------
-// Attach MCP HTTP handler
+// MCP HTTP Endpoint (New Convention)
 // -----------------------------
-const mcpHandler = createHttpHandler(mcpServer);
-app.post("/mcp", mcpHandler);
+app.post("/mcp", async (req, res) => {
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
+
+  res.on("close", transport.close.bind(transport));
+
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
+});
 
 // -----------------------------
 // Start Server
 // -----------------------------
 async function startServer() {
   try {
-    // Add a quick check to verify database connectivity before seeding
-    await db.query("SELECT 1"); 
+    await db.query("SELECT 1");
     console.log("✅ Database connection successful.");
-    
     await seedDatabase();
-    
+
     app.listen(PORT, () => {
       console.log(`✅ MCP Server running on http://localhost:${PORT}/mcp`);
       console.log(`✅ REST endpoints on http://localhost:${PORT}/tools/`);
     });
   } catch (err) {
     console.error("❌ Failed to start server or connect to DB:", err.message);
-    // Exit if the DB connection fails, as the server is useless without it
     process.exit(1);
   }
 }
