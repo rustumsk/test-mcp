@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 import pkg from "pg";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createHttpHandler } from "@modelcontextprotocol/sdk/server/http.js";
+import { createHttpHandler } from "@modelcontextprotocol/sdk/http";
 
 const { Pool } = pkg;
 dotenv.config();
