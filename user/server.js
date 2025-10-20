@@ -158,7 +158,7 @@ app.post("/mcp", async (req, res) => {
     return res.json({
       jsonrpc: "2.0",
       id,
-      error: { code: -32601, message: "Unknown method" },
+      error: { code: -32601, message: "BROOOOd" },
     });
   } catch (err) {
     console.error(err);
