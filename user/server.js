@@ -5,11 +5,13 @@ import dotenv from "dotenv";
 import pkg from "pg";
 const { Pool } = pkg;
 
+import { MCPServer } from "@modelcontextprotocol/sdk";
+
 dotenv.config();
 const PORT = process.env.PORT || 3000;
 
 // -----------------------------
-// Connect to PostgreSQL
+// PostgreSQL Setup
 // -----------------------------
 const db = new Pool({
   host: process.env.DB_HOST,
@@ -17,7 +19,7 @@ const db = new Pool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT || 5432,
-  ssl: { rejectUnauthorized: false }, // required for Render
+  ssl: { rejectUnauthorized: false },
 });
 
 // -----------------------------
@@ -56,7 +58,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // -----------------------------
-// REST Endpoints for Tools
+// REST Endpoints
 // -----------------------------
 app.get("/tools/list_users", async (req, res) => {
   try {
@@ -93,107 +95,55 @@ app.post("/tools/create_user", async (req, res) => {
 });
 
 // -----------------------------
-// MCP JSON-RPC Endpoint
+// MCP Server via SDK
 // -----------------------------
-const tools = {
-  list_users: {
-    description: "List all users",
-    handler: async () => {
-      const { rows } = await db.query("SELECT * FROM users");
-      return rows;
-    },
-  },
-  get_user: {
-    description: "Get a user by ID",
-    handler: async ({ id }) => {
-      const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
-      return rows[0] || null;
-    },
-  },
-  create_user: {
-    description: "Create a new user",
-    handler: async ({ name, email, role }) => {
-      const { rows } = await db.query(
-        "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
-        [name, email, role]
-      );
-      return rows[0];
-    },
-  },
-};
+const mcp = new MCPServer({
+  serverInfo: { name: "Test MCP Server", version: "2025-03-26" },
+  protocolVersion: "2025-03-26",
+  capabilities: { sampling: {}, roots: [] },
+});
 
+// Register tools
+mcp.registerTool({
+  name: "list_users",
+  description: "List all users",
+  handler: async () => {
+    const { rows } = await db.query("SELECT * FROM users");
+    return rows;
+  },
+});
+
+mcp.registerTool({
+  name: "get_user",
+  description: "Get a user by ID",
+  handler: async ({ id }) => {
+    const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
+    return rows[0] || null;
+  },
+});
+
+mcp.registerTool({
+  name: "create_user",
+  description: "Create a new user",
+  handler: async ({ name, email, role }) => {
+    const { rows } = await db.query(
+      "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
+      [name, email, role]
+    );
+    return rows[0];
+  },
+});
+
+// MCP endpoint
 app.post("/mcp", async (req, res) => {
-  const { id, method, params } = req.body;
-  console.log("MCP Request:", req.body); // for debugging
   try {
-    const normalizedMethod = method.replace(/^mcp\//, "");
-
-    // -----------------------------
-    // Handle MCP initialize
-    // -----------------------------
-    if (normalizedMethod === "initialize") {
-      try {
-        const toolList = Object.entries(tools).map(([name, t]) => ({
-          name,
-          description: t.description,
-        }));
-
-        return res.json({
-          jsonrpc: "2.0",
-          id,
-          result: {
-            protocolVersion: "2025-03-26",
-            capabilities: {
-              sampling: {},
-              roots: [],
-            },
-            serverInfo: {
-              name: "Test MCP Server",
-              version: "2025-03-26",
-            },
-            tools: toolList,
-          },
-        });
-      } catch (err) {
-        console.error("Error in initialize:", err);
-        return res.status(500).json({
-          jsonrpc: "2.0",
-          id,
-          error: { code: -32000, message: err.message },
-        });
-      }
-    }
-
-    // -----------------------------
-    // Handle tool invocation
-    // -----------------------------
-    if (normalizedMethod === "invoke_tool") {
-      const { name, args } = params || {};
-      const tool = tools[name];
-      if (!tool) {
-        return res.json({
-          jsonrpc: "2.0",
-          id,
-          error: { code: -32601, message: `Unknown tool: ${name}` },
-        });
-      }
-      const result = await tool.handler(args || {});
-      return res.json({ jsonrpc: "2.0", id, result });
-    }
-
-    // -----------------------------
-    // Unknown method fallback
-    // -----------------------------
-    return res.json({
-      jsonrpc: "2.0",
-      id,
-      error: { code: -32601, message: `Unknown method: ${method}` },
-    });
+    const response = await mcp.handleRequest(req.body);
+    res.json(response);
   } catch (err) {
-    console.error(err);
-    return res.json({
+    console.error("MCP Error:", err);
+    res.status(500).json({
       jsonrpc: "2.0",
-      id,
+      id: req.body.id,
       error: { code: -32000, message: err.message },
     });
   }
