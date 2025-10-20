@@ -1,13 +1,12 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import dotenv from "dotenv";
 import pkg from "pg";
 import { z } from "zod";
-const { Pool } = pkg;
 
 dotenv.config();
+const { Pool } = pkg;
 const PORT = process.env.PORT || 3000;
 
 // -----------------------------
@@ -40,133 +39,80 @@ async function seedDatabase() {
   if (parseInt(rows[0].count) === 0) {
     await db.query(
       `INSERT INTO users (name, email, role) VALUES 
-        ($1, $2, $3), 
-        ($4, $5, $6)`,
-      ["Alice", "alice@example.com", "admin", "Bob", "bob@example.com", "user"]
+       ('Alice', 'alice@example.com', 'admin'),
+       ('Bob', 'bob@example.com', 'user')`
     );
     console.log("✅ Database seeded with default users");
-  } else {
-    console.log("ℹ️ Users table already has data, skipping seeding");
   }
 }
 
 // -----------------------------
-// Express App
+// Express App Setup
 // -----------------------------
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
 // -----------------------------
-// REST Endpoints
+// MCP JSON-RPC 2.0 Handler
 // -----------------------------
-app.get("/tools/list_users", async (req, res) => {
+app.post("/mcp", async (req, res) => {
+  const { id, method, params } = req.body || {};
+
   try {
-    const { rows } = await db.query("SELECT * FROM users");
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    if (!method) throw new Error("Missing method");
+    let result;
 
-app.get("/tools/get_user/:id", async (req, res) => {
-  try {
-    const { rows } = await db.query(
-      "SELECT * FROM users WHERE id = $1",
-      [req.params.id]
-    );
-    res.json(rows[0] || null);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    switch (method) {
+      case "tools/list":
+        result = {
+          tools: [
+            { name: "list_users", description: "List all users" },
+            { name: "get_user", description: "Get a user by ID" },
+            { name: "create_user", description: "Create a new user" },
+          ],
+        };
+        break;
 
-app.post("/tools/create_user", async (req, res) => {
-  const { name, email, role } = req.body;
-  try {
-    const { rows } = await db.query(
-      "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
-      [name, email, role]
-    );
-    res.json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+      case "tools/call":
+        const { name, arguments: args } = params || {};
+        if (!name) throw new Error("Missing tool name");
 
-// -----------------------------
-// MCP Server via SDK
-// -----------------------------
-const server = new McpServer({
-  name: "Test MCP Server",
-  version: "2025-03-26",
-});
+        if (name === "list_users") {
+          const { rows } = await db.query("SELECT * FROM users");
+          result = { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
+        } else if (name === "get_user") {
+          const schema = z.object({ id: z.number() });
+          const { id } = schema.parse(args || {});
+          const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
+          result = { content: [{ type: "text", text: JSON.stringify(rows[0] || null, null, 2) }] };
+        } else if (name === "create_user") {
+          const schema = z.object({
+            name: z.string(),
+            email: z.string(),
+            role: z.string(),
+          });
+          const { name, email, role } = schema.parse(args || {});
+          const { rows } = await db.query(
+            "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
+            [name, email, role]
+          );
+          result = { content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }] };
+        } else {
+          throw new Error(`Unknown tool: ${name}`);
+        }
+        break;
 
-// Register tools
-server.tool(
-  "list_users",
-  "List all users in the database",
-  {},
-  async () => {
-    const { rows } = await db.query("SELECT * FROM users");
-    return {
-      content: [{ type: "text", text: JSON.stringify(rows, null, 2) }],
-    };
-  }
-);
+      default:
+        throw new Error(`Unknown method: ${method}`);
+    }
 
-server.tool(
-  "get_user",
-  "Get a user by ID",
-  { id: z.number().describe("User ID") },
-  async ({ id }) => {
-    const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
-    return {
-      content: [
-        { type: "text", text: JSON.stringify(rows[0] || null, null, 2) },
-      ],
-    };
-  }
-);
-
-server.tool(
-  "create_user",
-  "Create a new user",
-  {
-    name: z.string().describe("User name"),
-    email: z.string().describe("User email"),
-    role: z.string().describe("User role"),
-  },
-  async ({ name, email, role }) => {
-    const { rows } = await db.query(
-      "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
-      [name, email, role]
-    );
-    return {
-      content: [
-        { type: "text", text: JSON.stringify(rows[0], null, 2) },
-      ],
-    };
-  }
-);
-
-// -----------------------------
-// MCP endpoint (modern handler)
-// -----------------------------
-app.post("/mcp", express.json(), async (req, res) => {
-  try {
-    const response = await server.handleHttpRequest({
-      body: req.body,
-      headers: req.headers,
-      method: req.method,
-      path: req.path,
-    });
-    res.status(response.status || 200).json(response.body);
+    res.json({ jsonrpc: "2.0", id, result });
   } catch (err) {
     console.error("MCP Error:", err);
-    res.status(500).json({
+    res.json({
       jsonrpc: "2.0",
-      id: req.body?.id,
+      id,
       error: { code: -32000, message: err.message },
     });
   }
@@ -179,8 +125,8 @@ async function startServer() {
   try {
     await seedDatabase();
     app.listen(PORT, () => {
-      console.log(`✅ MCP server running at http://localhost:${PORT}/mcp`);
-      console.log(`✅ REST endpoints available at http://localhost:${PORT}/tools/`);
+      console.log(`✅ MCP HTTP server ready on port ${PORT}`);
+      console.log(`✅ Endpoint: https://<your-render-app>.onrender.com/mcp`);
     });
   } catch (err) {
     console.error("❌ Failed to start server:", err);
