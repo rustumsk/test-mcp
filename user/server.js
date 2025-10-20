@@ -1,12 +1,12 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import dotenv from "dotenv";
 import pkg from "pg";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-
 const { Pool } = pkg;
+
 dotenv.config();
 const PORT = process.env.PORT || 3000;
 
@@ -19,7 +19,7 @@ const db = new Pool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT || 5432,
-  ssl: { rejectUnauthorized: false }, // For Render or other hosted DBs
+  ssl: { rejectUnauthorized: false },
 });
 
 // -----------------------------
@@ -98,47 +98,79 @@ app.post("/tools/create_user", async (req, res) => {
 // MCP Server via SDK
 // -----------------------------
 const server = new McpServer({
-  serverInfo: { name: "Test MCP Server", version: "2025-03-26" },
-  protocolVersion: "2025-03-26",
-  capabilities: {},
+  name: "Test MCP Server",
+  version: "2025-03-26",
 });
 
 // Register tools
 server.tool(
   "list_users",
-  "List all users",
+  "List all users in the database",
   {},
   async () => {
     const { rows } = await db.query("SELECT * FROM users");
-    return { content: rows };
+    return {
+      content: [{ type: "text", text: JSON.stringify(rows, null, 2) }],
+    };
   }
 );
 
 server.tool(
   "get_user",
   "Get a user by ID",
-  { id: z.number() },
+  { id: z.number().describe("User ID") },
   async ({ id }) => {
     const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
-    return { content: rows[0] || null };
+    return {
+      content: [
+        { type: "text", text: JSON.stringify(rows[0] || null, null, 2) },
+      ],
+    };
   }
 );
 
 server.tool(
   "create_user",
   "Create a new user",
-  { name: z.string(), email: z.string().email(), role: z.string() },
+  {
+    name: z.string().describe("User name"),
+    email: z.string().describe("User email"),
+    role: z.string().describe("User role"),
+  },
   async ({ name, email, role }) => {
     const { rows } = await db.query(
       "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
       [name, email, role]
     );
-    return { content: rows[0] };
+    return {
+      content: [
+        { type: "text", text: JSON.stringify(rows[0], null, 2) },
+      ],
+    };
   }
 );
 
-// Attach MCP server to Express
-app.use("/mcp", server.expressRouter());
+// -----------------------------
+// MCP endpoint (modern handler)
+// -----------------------------
+app.post("/mcp", express.json(), async (req, res) => {
+  try {
+    const response = await server.handleHttpRequest({
+      body: req.body,
+      headers: req.headers,
+      method: req.method,
+      path: req.path,
+    });
+    res.status(response.status || 200).json(response.body);
+  } catch (err) {
+    console.error("MCP Error:", err);
+    res.status(500).json({
+      jsonrpc: "2.0",
+      id: req.body?.id,
+      error: { code: -32000, message: err.message },
+    });
+  }
+});
 
 // -----------------------------
 // Start Server
@@ -147,11 +179,11 @@ async function startServer() {
   try {
     await seedDatabase();
     app.listen(PORT, () => {
-      console.log(`MCP server running at http://localhost:${PORT}/mcp`);
-      console.log(`REST endpoints available at http://localhost:${PORT}/tools/`);
+      console.log(`✅ MCP server running at http://localhost:${PORT}/mcp`);
+      console.log(`✅ REST endpoints available at http://localhost:${PORT}/tools/`);
     });
   } catch (err) {
-    console.error("Failed to start server:", err);
+    console.error("❌ Failed to start server:", err);
   }
 }
 
