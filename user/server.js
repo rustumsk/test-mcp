@@ -131,26 +131,37 @@ app.post("/mcp", async (req, res) => {
     // -----------------------------
     // Handle MCP initialize
     // -----------------------------
-    if (normalizedMethod === "initialize" || normalizedMethod === "get_tools") {
-      return res.json({
-        jsonrpc: "2.0",
-        id,
-        result: {
-          protocolVersion: "1.0",
-          capabilities: {
-            supportsStreaming: false,
-            supportsToolInvocation: true
+    if (normalizedMethod === "initialize") {
+      try {
+        const toolList = Object.entries(tools).map(([name, t]) => ({
+          name,
+          description: t.description,
+        }));
+
+        return res.json({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            protocolVersion: "2025-03-26",
+            capabilities: {
+              sampling: {},
+              roots: [],
+            },
+            serverInfo: {
+              name: "Test MCP Server",
+              version: "2025-03-26",
+            },
+            tools: toolList,
           },
-          serverInfo: { 
-            name: "Test MCP Server",
-            version: "1.0.0"
-          },
-          tools: Object.entries(tools).map(([name, t]) => ({
-            name,
-            description: t.description,
-          })),
-        },
-      });
+        });
+      } catch (err) {
+        console.error("Error in initialize:", err);
+        return res.status(500).json({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32000, message: err.message },
+        });
+      }
     }
 
     // -----------------------------
