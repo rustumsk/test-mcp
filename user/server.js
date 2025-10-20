@@ -4,12 +4,11 @@ import bodyParser from "body-parser";
 import cors from "cors";
 import dotenv from "dotenv";
 import pkg from "pg";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-const { Pool } = pkg;
 dotenv.config();
-
+const { Pool } = pkg;
 const PORT = process.env.PORT || 3000;
 
 // -----------------------------
@@ -60,7 +59,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // -----------------------------
-// REST Endpoints
+// REST Endpoints (Optional)
 // -----------------------------
 app.get("/tools/list_users", async (req, res) => {
   try {
@@ -73,10 +72,9 @@ app.get("/tools/list_users", async (req, res) => {
 
 app.get("/tools/get_user/:id", async (req, res) => {
   try {
-    const { rows } = await db.query(
-      "SELECT * FROM users WHERE id = $1",
-      [req.params.id]
-    );
+    const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [
+      req.params.id,
+    ]);
     res.json(rows[0] || null);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -97,60 +95,56 @@ app.post("/tools/create_user", async (req, res) => {
 });
 
 // -----------------------------
-// MCP Server
+// MCP Server Setup
 // -----------------------------
-const mcp = new McpServer({
+const server = new McpServer({
   serverInfo: { name: "Test MCP Server", version: "2025-03-26" },
   protocolVersion: "2025-03-26",
-  capabilities: { sampling: {}, roots: [] },
+  capabilities: {}, // optional
 });
 
-// -----------------------------
-// Register Tools for MCP
-// -----------------------------
-mcp.tool(
+// Register tools using Dify-compatible `.tool()`
+server.tool(
   "list_users",
   "List all users",
-  z.object({}).optional(),
+  {}, // no inputs
   async () => {
     const { rows } = await db.query("SELECT * FROM users");
-    return rows;
+    return { content: rows };
   }
 );
 
-mcp.tool(
+server.tool(
   "get_user",
   "Get a user by ID",
-  z.object({ id: z.number() }),
+  { id: z.number().describe("User ID") },
   async ({ id }) => {
     const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
-    return rows[0] || null;
+    return { content: rows[0] || null };
   }
 );
 
-mcp.tool(
+server.tool(
   "create_user",
   "Create a new user",
-  z.object({
-    name: z.string(),
-    email: z.string(),
-    role: z.string(),
-  }),
+  {
+    name: z.string().describe("Name of the user"),
+    email: z.string().email().describe("Email of the user"),
+    role: z.string().describe("Role of the user"),
+  },
   async ({ name, email, role }) => {
     const { rows } = await db.query(
       "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
       [name, email, role]
     );
-    return rows[0];
+    return { content: rows[0] };
   }
 );
 
-// -----------------------------
-// MCP Endpoint
-// -----------------------------
+// MCP endpoint
 app.post("/mcp", async (req, res) => {
   try {
-    const response = await mcp.handleRequest(req.body);
+    const response = await server.handleRequest(req.body);
     res.json(response);
   } catch (err) {
     console.error("MCP Error:", err);
