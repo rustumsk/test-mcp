@@ -124,8 +124,8 @@ const tools = {
 
 app.post("/mcp", async (req, res) => {
   const { id, method, params } = req.body;
+  console.log("MCP Request:", req.body); // <--- log everything
   try {
-    // Normalize method so Dify works
     const normalizedMethod = method.replace(/^mcp\//, "");
 
     if (normalizedMethod === "get_tools") {
@@ -155,10 +155,11 @@ app.post("/mcp", async (req, res) => {
       return res.json({ jsonrpc: "2.0", id, result });
     }
 
+    // Catch-all for unknown methods
     return res.json({
       jsonrpc: "2.0",
       id,
-      error: { code: -32601, message: "BROOOOd" },
+      error: { code: -32601, message: `Unknown method: ${method}` },
     });
   } catch (err) {
     console.error(err);
