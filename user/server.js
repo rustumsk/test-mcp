@@ -8,23 +8,22 @@ const { Pool } = pkg;
 dotenv.config();
 const PORT = process.env.PORT || 3000;
 
-// connect to PostgreSQL
+// -----------------------------
+// Connect to PostgreSQL
+// -----------------------------
 const db = new Pool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT || 5432,
-  ssl: {
-    rejectUnauthorized: false, // Render uses a self-signed cert
-  },
+  ssl: { rejectUnauthorized: false }, // required for Render
 });
 
 // -----------------------------
-// SEED DATABASE
+// Seed Database
 // -----------------------------
 async function seedDatabase() {
-  // Create table if it doesn't exist
   await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -35,7 +34,6 @@ async function seedDatabase() {
     )
   `);
 
-  // Check if table already has users
   const { rows } = await db.query("SELECT COUNT(*) AS count FROM users");
   if (parseInt(rows[0].count) === 0) {
     await db.query(
@@ -50,97 +48,145 @@ async function seedDatabase() {
   }
 }
 
-// Run seeding on startup
-await seedDatabase();
-
 // -----------------------------
-// DEFINE YOUR TOOLS
-// -----------------------------
-const tools = {
-  list_users: {
-    description: "List all users",
-    handler: async () => {
-      const { rows } = await db.query("SELECT * FROM users");
-      return rows;
-    },
-  },
-  get_user: {
-    description: "Get a user by ID",
-    handler: async ({ id }) => {
-      const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
-      return rows[0] || null;
-    },
-  },
-  create_user: {
-    description: "Create a new user",
-    handler: async ({ name, email, role }) => {
-      const { rows } = await db.query(
-        "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
-        [name, email, role]
-      );
-      return rows[0];
-    },
-  },
-};
-
-// -----------------------------
-// MCP SERVER (JSON-RPC HANDLER)
+// Express App
 // -----------------------------
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-app.post("/mcp", async (req, res) => {
-  const { id, method, params } = req.body;
-
+// Run seeding and start server
+async function startServer() {
   try {
-    if (method === "mcp/get_tools") {
-      return res.json({
-        jsonrpc: "2.0",
-        id,
-        result: {
-          tools: Object.entries(tools).map(([name, t]) => ({
-            name,
-            description: t.description,
-          })),
-        },
-      });
-    }
+    await seedDatabase();
 
-    if (method === "mcp/invoke_tool") {
-      const { name, args } = params || {};
-      const tool = tools[name];
-      if (!tool) {
+    // -----------------------------
+    // REST Endpoints for Dify
+    // -----------------------------
+    // List all users
+    app.get("/tools/list_users", async (req, res) => {
+      try {
+        const { rows } = await db.query("SELECT * FROM users");
+        res.json(rows);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // Get user by ID
+    app.get("/tools/get_user/:id", async (req, res) => {
+      try {
+        const { rows } = await db.query(
+          "SELECT * FROM users WHERE id = $1",
+          [req.params.id]
+        );
+        res.json(rows[0] || null);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // Create a new user
+    app.post("/tools/create_user", async (req, res) => {
+      const { name, email, role } = req.body;
+      try {
+        const { rows } = await db.query(
+          "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
+          [name, email, role]
+        );
+        res.json(rows[0]);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // -----------------------------
+    // Optional JSON-RPC MCP endpoint
+    // -----------------------------
+    const tools = {
+      list_users: {
+        description: "List all users",
+        handler: async () => {
+          const { rows } = await db.query("SELECT * FROM users");
+          return rows;
+        },
+      },
+      get_user: {
+        description: "Get a user by ID",
+        handler: async ({ id }) => {
+          const { rows } = await db.query(
+            "SELECT * FROM users WHERE id = $1",
+            [id]
+          );
+          return rows[0] || null;
+        },
+      },
+      create_user: {
+        description: "Create a new user",
+        handler: async ({ name, email, role }) => {
+          const { rows } = await db.query(
+            "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
+            [name, email, role]
+          );
+          return rows[0];
+        },
+      },
+    };
+
+    app.post("/mcp", async (req, res) => {
+      const { id, method, params } = req.body;
+      try {
+        if (method === "mcp/get_tools") {
+          return res.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              tools: Object.entries(tools).map(([name, t]) => ({
+                name,
+                description: t.description,
+              })),
+            },
+          });
+        }
+
+        if (method === "mcp/invoke_tool") {
+          const { name, args } = params || {};
+          const tool = tools[name];
+          if (!tool) {
+            return res.json({
+              jsonrpc: "2.0",
+              id,
+              error: { code: -32601, message: `Unknown tool: ${name}` },
+            });
+          }
+
+          const result = await tool.handler(args || {});
+          return res.json({ jsonrpc: "2.0", id, result });
+        }
+
         return res.json({
           jsonrpc: "2.0",
           id,
-          error: { code: -32601, message: `Unknown tool: ${name}` },
+          error: { code: -32601, message: "Unknown method" },
+        });
+      } catch (err) {
+        console.error(err);
+        return res.json({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32000, message: err.message },
         });
       }
+    });
 
-      const result = await tool.handler(args || {});
-      return res.json({
-        jsonrpc: "2.0",
-        id,
-        result,
-      });
-    }
-
-    return res.json({
-      jsonrpc: "2.0",
-      id,
-      error: { code: -32601, message: "Unknown method" },
+    app.listen(PORT, () => {
+      console.log(`MCP server running at http://localhost:${PORT}/mcp`);
+      console.log(`REST endpoints available at http://localhost:${PORT}/tools/`);
     });
   } catch (err) {
-    console.error(err);
-    return res.json({
-      jsonrpc: "2.0",
-      id,
-      error: { code: -32000, message: err.message },
-    });
+    console.error("Failed to start server:", err);
   }
-});
+}
 
-app.listen(PORT, () => {
-  console.log(`MCP server running at http://localhost:${PORT}/mcp`);
-});
+// Start server
+startServer();
