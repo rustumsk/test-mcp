@@ -4,7 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import pkg from "pg";
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 const { Pool } = pkg;
@@ -57,12 +57,10 @@ async function seedDatabase() {
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
-
-// Health check (optional)
 app.get("/", (_, res) => res.send("✅ MCP server is running"));
 
 // -----------------------------
-// REST Endpoints (for manual testing)
+// REST Endpoints (optional manual testing)
 // -----------------------------
 app.get("/tools/list_users", async (req, res) => {
   try {
@@ -75,9 +73,7 @@ app.get("/tools/list_users", async (req, res) => {
 
 app.get("/tools/get_user/:id", async (req, res) => {
   try {
-    const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [
-      req.params.id,
-    ]);
+    const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [req.params.id]);
     res.json(rows[0] || null);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -102,10 +98,12 @@ app.post("/tools/create_user", async (req, res) => {
 // -----------------------------
 const server = new McpServer({
   name: "user-mcp",
-  version: "1.0.0",
+  version: "1.1.0",
 });
 
+// -----------------------------
 // MCP Tools
+// -----------------------------
 server.registerTool(
   "list_users",
   {
@@ -115,9 +113,7 @@ server.registerTool(
   },
   async () => {
     const { rows } = await db.query("SELECT * FROM users ORDER BY id ASC");
-    return {
-      content: [{ type: "text", text: JSON.stringify(rows, null, 2) }],
-    };
+    return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
   }
 );
 
@@ -132,12 +128,7 @@ server.registerTool(
     const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
     return {
       content: [
-        {
-          type: "text",
-          text: rows.length
-            ? JSON.stringify(rows[0], null, 2)
-            : "User not found",
-        },
+        { type: "text", text: rows.length ? JSON.stringify(rows[0], null, 2) : "User not found" },
       ],
     };
   }
@@ -159,23 +150,35 @@ server.registerTool(
       "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
       [name, email, role]
     );
-    return {
-      content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
-    };
+    return { content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }] };
   }
 );
 
 // -----------------------------
-// MCP HTTP Endpoint (New Convention)
+// MCP Resource: user://{id}
+// -----------------------------
+server.registerResource(
+  "user",
+  new ResourceTemplate("user://{id}", { list: undefined }),
+  {
+    title: "User Resource",
+    description: "Access a user by ID via a resource URI",
+  },
+  async (uri, { id }) => {
+    const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
+    if (!rows.length) {
+      return { contents: [{ uri: uri.href, text: "User not found" }] };
+    }
+    return { contents: [{ uri: uri.href, text: JSON.stringify(rows[0], null, 2) }] };
+  }
+);
+
+// -----------------------------
+// MCP HTTP Endpoint
 // -----------------------------
 app.post("/mcp", async (req, res) => {
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  });
-
+  const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
   res.on("close", transport.close.bind(transport));
-
   await server.connect(transport);
   await transport.handleRequest(req, res, req.body);
 });
@@ -188,7 +191,6 @@ async function startServer() {
     await db.query("SELECT 1");
     console.log("✅ Database connection successful.");
     await seedDatabase();
-
     app.listen(PORT, () => {
       console.log(`✅ MCP Server running on http://localhost:${PORT}/mcp`);
       console.log(`✅ REST endpoints on http://localhost:${PORT}/tools/`);
