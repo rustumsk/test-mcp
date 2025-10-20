@@ -124,11 +124,12 @@ const tools = {
 
 app.post("/mcp", async (req, res) => {
   const { id, method, params } = req.body;
-  console.log("MCP Request:", req.body); // <--- log everything
+  console.log("MCP Request:", req.body); // for debugging
   try {
     const normalizedMethod = method.replace(/^mcp\//, "");
 
-    if (normalizedMethod === "get_tools") {
+    if (normalizedMethod === "initialize" || normalizedMethod === "get_tools") {
+      // Return tool metadata
       return res.json({
         jsonrpc: "2.0",
         id,
@@ -155,7 +156,7 @@ app.post("/mcp", async (req, res) => {
       return res.json({ jsonrpc: "2.0", id, result });
     }
 
-    // Catch-all for unknown methods
+    // Unknown method fallback
     return res.json({
       jsonrpc: "2.0",
       id,
