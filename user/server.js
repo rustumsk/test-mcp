@@ -1,13 +1,15 @@
+// server.js
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import dotenv from "dotenv";
 import pkg from "pg";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+
 const { Pool } = pkg;
-
-import { MCPServer } from "@modelcontextprotocol/sdk";
-
 dotenv.config();
+
 const PORT = process.env.PORT || 3000;
 
 // -----------------------------
@@ -95,46 +97,57 @@ app.post("/tools/create_user", async (req, res) => {
 });
 
 // -----------------------------
-// MCP Server via SDK
+// MCP Server
 // -----------------------------
-const mcp = new MCPServer({
+const mcp = new McpServer({
   serverInfo: { name: "Test MCP Server", version: "2025-03-26" },
   protocolVersion: "2025-03-26",
   capabilities: { sampling: {}, roots: [] },
 });
 
-// Register tools
-mcp.registerTool({
-  name: "list_users",
-  description: "List all users",
-  handler: async () => {
+// -----------------------------
+// Register Tools for MCP
+// -----------------------------
+mcp.tool(
+  "list_users",
+  "List all users",
+  z.object({}).optional(),
+  async () => {
     const { rows } = await db.query("SELECT * FROM users");
     return rows;
-  },
-});
+  }
+);
 
-mcp.registerTool({
-  name: "get_user",
-  description: "Get a user by ID",
-  handler: async ({ id }) => {
+mcp.tool(
+  "get_user",
+  "Get a user by ID",
+  z.object({ id: z.number() }),
+  async ({ id }) => {
     const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
     return rows[0] || null;
-  },
-});
+  }
+);
 
-mcp.registerTool({
-  name: "create_user",
-  description: "Create a new user",
-  handler: async ({ name, email, role }) => {
+mcp.tool(
+  "create_user",
+  "Create a new user",
+  z.object({
+    name: z.string(),
+    email: z.string(),
+    role: z.string(),
+  }),
+  async ({ name, email, role }) => {
     const { rows } = await db.query(
       "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
       [name, email, role]
     );
     return rows[0];
-  },
-});
+  }
+);
 
-// MCP endpoint
+// -----------------------------
+// MCP Endpoint
+// -----------------------------
 app.post("/mcp", async (req, res) => {
   try {
     const response = await mcp.handleRequest(req.body);
