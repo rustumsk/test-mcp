@@ -137,8 +137,14 @@ app.post("/mcp", async (req, res) => {
         id,
         result: {
           protocolVersion: "1.0",
-          capabilities: [],
-          serverInfo: { name: "Test MCP Server" },
+          capabilities: {
+            supportsStreaming: false,
+            supportsToolInvocation: true
+          },
+          serverInfo: { 
+            name: "Test MCP Server",
+            version: "1.0.0"
+          },
           tools: Object.entries(tools).map(([name, t]) => ({
             name,
             description: t.description,
