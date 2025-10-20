@@ -3,8 +3,9 @@ import bodyParser from "body-parser";
 import cors from "cors";
 import dotenv from "dotenv";
 import pkg from "pg";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { createHttpHandler } from "@modelcontextprotocol/sdk/server/http.js";
 
 const { Pool } = pkg;
 dotenv.config();
@@ -41,8 +42,8 @@ async function seedDatabase() {
   if (parseInt(rows[0].count) === 0) {
     await db.query(
       `INSERT INTO users (name, email, role) VALUES
-        ('Alice', 'alice@example.com', 'admin'),
-        ('Bob', 'bob@example.com', 'user')`
+       ('Alice', 'alice@example.com', 'admin'),
+       ('Bob', 'bob@example.com', 'user')`
     );
     console.log("✅ Database seeded with default users");
   } else {
@@ -101,7 +102,7 @@ const mcpServer = new McpServer({
   version: "1.0.0",
 });
 
-// Register tools — compliant with the SDK pattern
+// Register MCP tools
 mcpServer.tool(
   "list_users",
   "List all users in the database",
@@ -150,10 +151,10 @@ mcpServer.tool(
 );
 
 // -----------------------------
-// Attach MCP server to Express (per MCP SDK spec)
+// Attach MCP server to Express (current SDK API)
 // -----------------------------
-// This exposes /mcp with full JSON-RPC 2.0 compliance
-app.use("/mcp", mcpServer.express());
+const mcpHandler = createHttpHandler(mcpServer);
+app.post("/mcp", mcpHandler);
 
 // -----------------------------
 // Start Server
