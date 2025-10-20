@@ -9,7 +9,6 @@ import { createHttpHandler } from "@modelcontextprotocol/sdk/server/http.js";
 
 const { Pool } = pkg;
 dotenv.config();
-
 const PORT = process.env.PORT || 3000;
 
 // -----------------------------
@@ -40,11 +39,11 @@ async function seedDatabase() {
 
   const { rows } = await db.query("SELECT COUNT(*) AS count FROM users");
   if (parseInt(rows[0].count) === 0) {
-    await db.query(
-      `INSERT INTO users (name, email, role) VALUES
-       ('Alice', 'alice@example.com', 'admin'),
-       ('Bob', 'bob@example.com', 'user')`
-    );
+    await db.query(`
+      INSERT INTO users (name, email, role) VALUES
+      ('Alice', 'alice@example.com', 'admin'),
+      ('Bob', 'bob@example.com', 'user')
+    `);
     console.log("✅ Database seeded with default users");
   } else {
     console.log("ℹ️ Users table already has data, skipping seeding");
@@ -59,7 +58,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // -----------------------------
-// REST Endpoints (for manual testing)
+// REST Endpoints (manual testing)
 // -----------------------------
 app.get("/tools/list_users", async (req, res) => {
   try {
@@ -95,41 +94,37 @@ app.post("/tools/create_user", async (req, res) => {
 });
 
 // -----------------------------
-// MCP Server Definition (per official SDK)
+// MCP Server Definition
 // -----------------------------
 const mcpServer = new McpServer({
-  name: "User Management MCP",
-  version: "1.0.0",
+  name: "user-mcp",
+  version: "1.0.1",
 });
 
-// Register MCP tools
-mcpServer.tool(
+// MCP tools
+mcpServer.registerTool(
   "list_users",
   "List all users in the database",
   {},
   async () => {
     const { rows } = await db.query("SELECT * FROM users");
-    return {
-      content: [{ type: "text", text: JSON.stringify(rows, null, 2) }],
-    };
+    return { content: [{ type: "text", text: JSON.stringify(rows, null, 2) }] };
   }
 );
 
-mcpServer.tool(
+mcpServer.registerTool(
   "get_user",
   "Retrieve a user by ID",
   { id: z.number().describe("User ID") },
   async ({ id }) => {
     const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [id]);
     return {
-      content: [
-        { type: "text", text: JSON.stringify(rows[0] || null, null, 2) },
-      ],
+      content: [{ type: "text", text: JSON.stringify(rows[0] || null, null, 2) }],
     };
   }
 );
 
-mcpServer.tool(
+mcpServer.registerTool(
   "create_user",
   "Create a new user in the database",
   {
@@ -143,15 +138,13 @@ mcpServer.tool(
       [name, email, role]
     );
     return {
-      content: [
-        { type: "text", text: JSON.stringify(rows[0], null, 2) },
-      ],
+      content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
     };
   }
 );
 
 // -----------------------------
-// Attach MCP server to Express (current SDK API)
+// Attach MCP server to Express
 // -----------------------------
 const mcpHandler = createHttpHandler(mcpServer);
 app.post("/mcp", mcpHandler);
@@ -163,8 +156,8 @@ async function startServer() {
   try {
     await seedDatabase();
     app.listen(PORT, () => {
-      console.log(`✅ MCP Server running on http://localhost:${PORT}/mcp`);
-      console.log(`✅ REST endpoints on http://localhost:${PORT}/tools/`);
+      console.log(`✅ MCP Server running at http://localhost:${PORT}/mcp`);
+      console.log(`✅ REST endpoints at http://localhost:${PORT}/tools/`);
     });
   } catch (err) {
     console.error("❌ Failed to start server:", err);
