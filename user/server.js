@@ -99,7 +99,7 @@ async function startServer() {
         res.status(500).json({ error: err.message });
       }
     });
-
+    
     // -----------------------------
     // Optional JSON-RPC MCP endpoint
     // -----------------------------
@@ -146,6 +146,14 @@ async function startServer() {
                 description: t.description,
               })),
             },
+          });
+        }
+
+        if (method === "mcp/connect") {
+          return res.json({
+            jsonrpc: "2.0",
+            id,
+            result: { status: "connected" },
           });
         }
 
