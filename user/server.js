@@ -62,36 +62,36 @@ app.get("/", (_, res) => res.send("✅ MCP server is running"));
 // -----------------------------
 // REST Endpoints (optional manual testing)
 // -----------------------------
-app.get("/tools/list_users", async (req, res) => {
-  try {
-    const { rows } = await db.query("SELECT * FROM users");
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// app.get("/tools/list_users", async (req, res) => {
+//   try {
+//     const { rows } = await db.query("SELECT * FROM users");
+//     res.json(rows);
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// });
 
-app.get("/tools/get_user/:id", async (req, res) => {
-  try {
-    const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [req.params.id]);
-    res.json(rows[0] || null);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// app.get("/tools/get_user/:id", async (req, res) => {
+//   try {
+//     const { rows } = await db.query("SELECT * FROM users WHERE id = $1", [req.params.id]);
+//     res.json(rows[0] || null);
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// });
 
-app.post("/tools/create_user", async (req, res) => {
-  const { name, email, role } = req.body;
-  try {
-    const { rows } = await db.query(
-      "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
-      [name, email, role]
-    );
-    res.json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// app.post("/tools/create_user", async (req, res) => {
+//   const { name, email, role } = req.body;
+//   try {
+//     const { rows } = await db.query(
+//       "INSERT INTO users (name, email, role) VALUES ($1, $2, $3) RETURNING *",
+//       [name, email, role]
+//     );
+//     res.json(rows[0]);
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// });
 
 // -----------------------------
 // MCP Server Setup
