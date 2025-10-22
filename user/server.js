@@ -182,6 +182,20 @@ app.post("/mcp", async (req, res) => {
   await server.connect(transport);
   await transport.handleRequest(req, res, req.body);
 });
+app.get("/mcp", async (req, res) => {
+  res.json({
+    name: server.name,
+    version: server.version,
+    tools: server.listTools().map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema
+    })),
+    resources: server.listResources
+      ? server.listResources().map(r => ({ name: r.name, description: r.description }))
+      : []
+  });
+});
 
 // -----------------------------
 // Start Server
